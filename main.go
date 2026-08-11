@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -11,8 +13,6 @@ import (
 
 	"boot.dev/linko/internal/store"
 )
-
-var logger = log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -27,12 +27,19 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	st, err := store.New(dataDir)
+	logger, err := initializeLogger()
 	if err != nil {
-		logger.Printf("failed to create store: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	}
-	s := newServer(*st, httpPort, cancel)
+
+	st, err := store.New(dataDir, logger)
+	if err != nil {
+		logger.Printf("failed to create store: %v\n", err)
+		return 1
+	}
+
+	s := newServer(*st, httpPort, cancel, logger)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -52,4 +59,18 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 		return 1
 	}
 	return 0
+}
+
+func initializeLogger() (*log.Logger, error) {
+	linkoLogs, exists := os.LookupEnv("LINKO_LOG_FILE")
+	if exists {
+		logFile, err := os.OpenFile(linkoLogs, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open log file: %w", err)
+		}
+		multiWriter := io.MultiWriter(os.Stderr, logFile)
+		logger := log.New(multiWriter, "", log.LstdFlags)
+		return logger, nil
+	}
+	return log.New(os.Stderr, "", log.LstdFlags), nil
 }
