@@ -80,7 +80,7 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})
-		infoHandler := slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+		infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		})
 
