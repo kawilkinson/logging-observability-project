@@ -1,4 +1,4 @@
-module boot.dev/linko
+module kawilkinson/linko
 
 go 1.26
 
