@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +41,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
-		logger.Printf("failed to create store: %v\n", err)
+		logger.Info(fmt.Sprintf("failed to create store: %v\n", err))
 		return 1
 	}
 
@@ -55,13 +55,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	logger.Println("Linko is shutting down")
+	logger.Info("Linko is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Printf("failed to shutdown server: %v\n", err)
+		logger.Info(fmt.Sprintf("failed to shutdown server: %v\n", err))
 		return 1
 	}
 	if serverErr != nil {
-		logger.Printf("server error: %v", serverErr)
+		logger.Info(fmt.Sprintf("server error: %v", serverErr))
 		return 1
 	}
 	return 0
@@ -69,7 +69,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 type closeFunc func() error
 
-func initializeLogger() (*log.Logger, closeFunc, error) {
+func initializeLogger() (*slog.Logger, closeFunc, error) {
 	linkoLogs, exists := os.LookupEnv("LINKO_LOG_FILE")
 	if exists {
 		logFile, err := os.OpenFile(linkoLogs, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
@@ -78,7 +78,7 @@ func initializeLogger() (*log.Logger, closeFunc, error) {
 		}
 		bufferedFile := bufio.NewWriterSize(logFile, 8192)
 		multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
-		logger := log.New(multiWriter, "", log.LstdFlags)
+		logger := slog.New(slog.NewTextHandler(multiWriter, nil))
 		close := func() error {
 			if err := bufferedFile.Flush(); err != nil {
 				return fmt.Errorf("failed to flush log buffer: %w", err)
@@ -93,5 +93,5 @@ func initializeLogger() (*log.Logger, closeFunc, error) {
 	close := func() error {
 		return nil
 	}
-	return log.New(os.Stderr, "", log.LstdFlags), close, nil
+	return slog.New(slog.NewTextHandler(os.Stderr, nil)), close, nil
 }
