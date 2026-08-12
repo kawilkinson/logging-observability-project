@@ -113,6 +113,11 @@ type stackTracer interface {
 	StackTrace() pkgerr.StackTrace
 }
 
+type multiError interface {
+	error
+	Unwrap() []error
+}
+
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
@@ -129,13 +134,23 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 
 		attrs = append(attrs, linkoerr.Attrs(err)...)
 
+		if multiErr, ok := errors.AsType[multiError](err); ok {
+			errors := multiErr.Unwrap()
+			for i, e := range errors {
+				attrs = append(attrs, slog.Attr {
+					Key: fmt.Sprintf("error_%d", i+1),
+					Value: slog.StringValue(e.Error()),
+				})
+			}
+			return slog.GroupAttrs("errors", attrs...)
+		}
+
 		if stackErr, ok := errors.AsType[stackTracer](err); ok {
 			attrs = append(attrs, slog.Attr {
 				Key: "stack_trace",
 				Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
 			})
 		}
-		
 		return slog.GroupAttrs("error", attrs...)
 	}
 	return a
