@@ -67,14 +67,14 @@ func (s *Store) Create(_ context.Context, long string) (string, error) {
 
 const maxURLs = 10
 
-func (s *Store) List(ctx context.Context) ([]ShortURL, []error) {
+func (s *Store) List(ctx context.Context) ([]ShortURL, error) {
 	ch := make(chan ShortURL)
 	go s.walk(ctx, ch)
 	var urls []ShortURL
-	var errors []error
+	var errs []error
 	for e := range ch {
 		if e.Err != nil {
-			errors = append(errors, e.Err)
+			errs = append(errs, e.Err)
 			continue
 		}
 		urls = append(urls, e)
@@ -82,8 +82,8 @@ func (s *Store) List(ctx context.Context) ([]ShortURL, []error) {
 			break
 		}
 	}
-	if len(errors) > 0 {
-		return nil, errors
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return urls, nil
 }
