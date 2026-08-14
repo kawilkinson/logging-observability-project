@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"kawilkinson/linko/internal/store"
 	"kawilkinson/linko/internal/linkoerr"
+	"kawilkinson/linko/internal/store"
+	"kawilkinson/linko/internal/build"
+
 	pkgerr "github.com/pkg/errors"
 )
 
@@ -40,6 +42,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 			fmt.Fprintf(os.Stderr, "failed to close logger: %v\n", err)
 		}
 	}()
+
+	logger = logger.With(
+		slog.String("git_sha", build.GitSHA),
+		slog.String("build_time", build.BuildTime),
+	)
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
