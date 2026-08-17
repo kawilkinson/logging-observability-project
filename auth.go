@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"golang.org/x/crypto/bcrypt"
 	pkgerr "github.com/pkg/errors"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type contextKey string
@@ -35,8 +35,8 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 		}
 		ok, err := s.validatePassword(password, stored)
 		if err != nil {
-			s.logger.Error("error validating password", 
-				slog.String("user", username), 
+			s.logger.Error("error validating password",
+				slog.String("user", username),
 				slog.Any("error", err),
 			)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -47,6 +47,9 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), UserContextKey, username))
+		if logCtx, ok := r.Context().Value(logContextKey).(*LogContext); ok {
+			logCtx.Username = username
+		}
 		next.ServeHTTP(w, r)
 	})
 }

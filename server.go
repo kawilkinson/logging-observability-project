@@ -18,7 +18,13 @@ type server struct {
 	httpServer *http.Server
 	store      store.Store
 	cancel     context.CancelFunc
-	logger 	   *slog.Logger	
+	logger     *slog.Logger
+}
+
+const logContextKey contextKey = "log_context"
+
+type LogContext struct {
+	Username string
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
@@ -30,9 +36,12 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			r.Body = spyReader
 			w = spyWriter
 
+			logCtx := &LogContext{}
+			r = r.WithContext(context.WithValue(r.Context(), logContextKey, logCtx))
+
 			next.ServeHTTP(w, r)
 
-			logger.Info("Served request",
+			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("client_ip", r.RemoteAddr),
@@ -40,7 +49,11 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
 				slog.Int("response_body_bytes", spyWriter.bytesWritten),
-			)
+			}
+			if logCtx.Username != "" {
+				attrs = append(attrs, slog.String("user", logCtx.Username))
+			}
+			logger.Info("Served request", attrs...)
 		})
 	}
 }
@@ -59,7 +72,7 @@ func (r *spyReadCloser) Read(p []byte) (int, error) {
 type spyResponseWriter struct {
 	http.ResponseWriter
 	bytesWritten int
-	statusCode int	
+	statusCode   int
 }
 
 func (w *spyResponseWriter) Write(p []byte) (int, error) {
