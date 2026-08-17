@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -46,6 +47,7 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("client_ip", r.RemoteAddr),
+				slog.String("request_id", r.Header.Get("X-Request-ID")),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
@@ -58,6 +60,19 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				attrs = append(attrs, slog.GroupAttrs("error", errorAttrs(logCtx.Error)...))
 			}
 			logger.Info("Served request", attrs...)
+		})
+	}
+}
+
+func requestIDSetter() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestID := r.Header.Get("X-Request-ID")
+			if requestID == "" {
+				requestID = rand.Text()
+			}
+			w.Header().Set("X-Request-ID", requestID)
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -98,7 +113,7 @@ func newServer(store store.Store, port int, cancel context.CancelFunc, logger *s
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: requestLogger(logger)(mux),
+		Handler: requestLogger(logger)(requestIDSetter()(mux)),
 	}
 
 	s := &server{
