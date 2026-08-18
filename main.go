@@ -12,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"kawilkinson/linko/internal/build"
 	"kawilkinson/linko/internal/linkoerr"
 	"kawilkinson/linko/internal/store"
-	"kawilkinson/linko/internal/build"
 
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
 )
 
@@ -92,9 +94,15 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 		}
 		bufferedFile := bufio.NewWriterSize(logFile, 8192)
 
-		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		noColor := true
+		if isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd()) {
+			noColor = false
+		}
+		
+		debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
 			ReplaceAttr: replaceAttr,
 			Level: slog.LevelDebug,
+			NoColor: noColor,
 		})
 		infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 			ReplaceAttr: replaceAttr,
