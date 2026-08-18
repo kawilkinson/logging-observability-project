@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -19,6 +18,7 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
@@ -86,46 +86,46 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 type closeFunc func() error
 
 func initializeLogger() (*slog.Logger, closeFunc, error) {
+	var (
+		handlers []slog.Handler
+		closers []closeFunc
+	)
+
+	handlers = append(handlers, tint.NewTextHandler(os.Stderr, &tint.Options{
+		ReplaceAttr: replaceAttr,
+		Level: slog.LevelDebug,
+		NoColor: !(isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())),
+	}))
+
 	linkoLogs, exists := os.LookupEnv("LINKO_LOG_FILE")
 	if exists {
-		logFile, err := os.OpenFile(linkoLogs, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open log file: %w", err)
+		logger := &lumberjack.Logger{
+			Filename:   linkoLogs,
+			MaxSize:    1,
+			MaxAge:     28,
+			MaxBackups: 10,
+			LocalTime:  false,
+			Compress:   true,
 		}
-		bufferedFile := bufio.NewWriterSize(logFile, 8192)
-
-		noColor := true
-		if isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd()) {
-			noColor = false
-		}
-		
-		debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
+		handlers = append(handlers, slog.NewJSONHandler(logger, &slog.HandlerOptions{
 			ReplaceAttr: replaceAttr,
-			Level: slog.LevelDebug,
-			NoColor: noColor,
-		})
-		infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
-			ReplaceAttr: replaceAttr,
-			Level: slog.LevelInfo,
-		})
+		}))
 
-		logger := slog.New(slog.NewMultiHandler(debugHandler, infoHandler))
-
-		close := func() error {
-			if err := bufferedFile.Flush(); err != nil {
-				return fmt.Errorf("failed to flush log buffer: %w", err)
-			}
-			if err := logFile.Close(); err != nil {
+		closers = append(closers, func() error {
+			if err := logger.Close(); err != nil {
 				return fmt.Errorf("failed to close log file: %w", err)
 			}
 			return nil
-		}
-		return logger, close, nil
+		})
 	}
 	close := func() error {
-		return nil
+		var errs []error
+		for _, closer := range closers {
+			errs = append(errs, closer())
+		}
+		return errors.Join(errs...)
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, nil)), close, nil
+	return slog.New(slog.NewMultiHandler(handlers...)), close, nil
 }
 
 type stackTracer interface {
