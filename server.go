@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"kawilkinson/linko/internal/store"
@@ -46,7 +47,7 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
-				slog.String("client_ip", r.RemoteAddr),
+				slog.String("client_ip", redactIP(r.RemoteAddr)),
 				slog.String("request_id", r.Header.Get("X-Request-ID")),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
@@ -169,4 +170,21 @@ func httpError(ctx context.Context, w http.ResponseWriter, status int, err error
 		msg = http.StatusText(status)
 	}
 	http.Error(w, msg, status)
+}
+
+func redactIP(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	parsedIP := net.ParseIP(host)
+	if parsedIP == nil {
+		return addr
+	}
+	if parsedIP.To4() == nil {
+		return addr
+	}
+	splitIP := strings.Split(parsedIP.String(), ".")
+	splitIP[len(splitIP)-1] = "x"
+	return strings.Join(splitIP, ".")
 }
