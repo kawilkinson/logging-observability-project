@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -88,13 +90,13 @@ type closeFunc func() error
 func initializeLogger() (*slog.Logger, closeFunc, error) {
 	var (
 		handlers []slog.Handler
-		closers []closeFunc
+		closers  []closeFunc
 	)
 
 	handlers = append(handlers, tint.NewTextHandler(os.Stderr, &tint.Options{
 		ReplaceAttr: replaceAttr,
-		Level: slog.LevelDebug,
-		NoColor: !(isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())),
+		Level:       slog.LevelDebug,
+		NoColor:     !(isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())),
 	}))
 
 	linkoLogs, exists := os.LookupEnv("LINKO_LOG_FILE")
@@ -139,6 +141,26 @@ type multiError interface {
 }
 
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	var sensitiveKeys = []string{"password", "key", "apikey", "secret", "pin", "creditcardno", "user"}
+	if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.Attr{
+			Key:   a.Key,
+			Value: slog.StringValue("[REDACTED]"),
+		}
+	}
+
+	if a.Value.Kind() == slog.KindString {
+		if parsedURL, err := url.Parse(a.Value.String()); err == nil {
+			if _, hasPassword := parsedURL.User.Password(); hasPassword {
+				parsedURL.User = url.UserPassword(parsedURL.User.Username(), "[REDACTED]")
+				return slog.Attr{
+					Key: a.Key,
+					Value: slog.StringValue(parsedURL.String()),
+				}
+			}
+		}
+	}
+
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
 		if !ok {
@@ -149,35 +171,40 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 			errors := multiErr.Unwrap()
 			attrs := []slog.Attr{}
 			for i, e := range errors {
-				attrs = append(attrs, slog.Attr {
-					Key: fmt.Sprintf("error_%d", i+1),
+				attrs = append(attrs, slog.Attr{
+					Key:   fmt.Sprintf("error_%d", i+1),
 					Value: slog.AnyValue(errorAttrs(e)),
 				})
 			}
 			return slog.GroupAttrs("errors", attrs...)
 		}
-		
+
 		attrs := errorAttrs(err)
 		return slog.GroupAttrs("error", attrs...)
+	} else if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.Attr{
+			Key:   a.Key,
+			Value: slog.StringValue("[REDACTED]"),
+		}
 	}
 	return a
 }
 
 func errorAttrs(err error) []slog.Attr {
-		attrs := []slog.Attr{
-			{
-				Key: "message",
-				Value: slog.StringValue(err.Error()),
-			},
-		}
+	attrs := []slog.Attr{
+		{
+			Key:   "message",
+			Value: slog.StringValue(err.Error()),
+		},
+	}
 
-		attrs = append(attrs, linkoerr.Attrs(err)...)
+	attrs = append(attrs, linkoerr.Attrs(err)...)
 
-		if stackErr, ok := errors.AsType[stackTracer](err); ok {
-			attrs = append(attrs, slog.Attr {
-				Key: "stack_trace",
-				Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
-			})
-		}
-		return attrs
+	if stackErr, ok := errors.AsType[stackTracer](err); ok {
+		attrs = append(attrs, slog.Attr{
+			Key:   "stack_trace",
+			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+		})
+	}
+	return attrs
 }

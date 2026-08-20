@@ -111,10 +111,10 @@ func (s *Store) Lookup(_ context.Context, short string) (string, error) {
 	shortcodeFilepath := filepath.Join(s.dir, short)
 	data, err := os.ReadFile(shortcodeFilepath)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", ErrNotFound
+		return "", linkoerr.WithAttrs(ErrNotFound, "path", shortcodeFilepath)
 	}
 	if err != nil {
-		return "", err
+		return "", linkoerr.WithAttrs(err, "path", shortcodeFilepath)
 	}
 	return string(data), nil
 }
